@@ -1,0 +1,23 @@
+# Visual Studio solution-level cache
+.vs/
+
+# Claude Code local settings (machine-specific)
+.claude/
+
+# User-specific files
+*.user
+*.suo
+
+# Build results at solution level
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# NuGet
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
