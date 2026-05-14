@@ -24,3 +24,5 @@ jobs:
         app-name: AmsDevFunction
         package: ./publish
         publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+
+        
