@@ -1,4 +1,4 @@
-﻿name: Deploy Azure Function
+name: Deploy Azure Function
 
 on:
   push:
@@ -6,19 +6,19 @@ on:
 
 jobs:
   deploy:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Build
-      run: dotnet publish FunctionApp1/FunctionApp1.csproj --configuration Release --output ./publish
+      run: dotnet publish FunctionApp1/Eastern-Drayage-AzureFunctions.csproj --configuration Release --output ./publish
 
-    - name: Deploy
+    - name: Deploy to Azure Functions
       uses: Azure/functions-action@v1
       with:
         app-name: AmsDevFunction
