@@ -25,10 +25,6 @@ public class UpdateAmsStatus
     {
         _logger.LogInformation("UpdateAmsStatus function triggered.");
 
-        // Temporary test response — DB update logic is ready below, enabled after client approval
-        return new OkObjectResult("UpdateAmsStatus function is running successfully.");
-
-        /*
         AmsUpdatePayload? payload;
         try
         {
@@ -41,41 +37,87 @@ public class UpdateAmsStatus
             return new BadRequestObjectResult("Invalid JSON payload.");
         }
 
-        if (payload is null || payload.Id == 0 || string.IsNullOrWhiteSpace(payload.Status))
+        if (payload is null
+            || string.IsNullOrWhiteSpace(payload.DispatchedContainer)
+            || string.IsNullOrWhiteSpace(payload.DriverFullName)
+            || string.IsNullOrWhiteSpace(payload.Date)
+            || string.IsNullOrWhiteSpace(payload.Time)
+            || string.IsNullOrWhiteSpace(payload.Chassis))
         {
-            return new BadRequestObjectResult("Payload must include a non-zero 'Id' and a non-empty 'Status'.");
+            return new BadRequestObjectResult(
+                "Payload must include: DispatchedContainer, DriverFullName, Date, Time, Chassis. " +
+                "ReturnedContainer is optional.");
         }
-
-        _logger.LogInformation("Updating AMS record {Id} to status '{Status}'.", payload.Id, payload.Status);
-
-        const string sql = "UPDATE AMS SET Status = @Status WHERE Id = @Id";
 
         try
         {
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
-            await using var command = new SqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@Status", payload.Status);
-            command.Parameters.AddWithValue("@Id", payload.Id);
 
-            int rowsAffected = await command.ExecuteNonQueryAsync();
+            // Required: update delivery info for dispatched container
+            const string deliverySql = @"
+                UPDATE tblAMS
+                SET [DEL DATE] = @Date,
+                    [DEL BY]   = @DriverFullName,
+                    [DEL TME]  = @Time,
+                    CHASSIS    = @Chassis
+                WHERE CONTAINER = @DispatchedContainer";
 
-            if (rowsAffected == 0)
+            await using var deliveryCmd = new SqlCommand(deliverySql, connection);
+            deliveryCmd.Parameters.AddWithValue("@Date", payload.Date);
+            deliveryCmd.Parameters.AddWithValue("@DriverFullName", payload.DriverFullName);
+            deliveryCmd.Parameters.AddWithValue("@Time", payload.Time);
+            deliveryCmd.Parameters.AddWithValue("@Chassis", payload.Chassis);
+            deliveryCmd.Parameters.AddWithValue("@DispatchedContainer", payload.DispatchedContainer);
+
+            int deliveryRows = await deliveryCmd.ExecuteNonQueryAsync();
+            _logger.LogInformation("Delivery update: {Rows} row(s) for container {Container}.", deliveryRows, payload.DispatchedContainer);
+
+            // Optional: update return info if driver returned an empty container
+            int returnRows = 0;
+            if (!string.IsNullOrWhiteSpace(payload.ReturnedContainer))
             {
-                _logger.LogWarning("No AMS record found with Id {Id}.", payload.Id);
-                return new NotFoundObjectResult($"No AMS record found with Id {payload.Id}.");
+                const string returnSql = @"
+                    UPDATE tblAMS
+                    SET [RET BY]   = @DriverFullName,
+                        [RET DATE] = @Date,
+                        [RET TIME] = @Time,
+                        CHASSIS    = @Chassis
+                    WHERE CONTAINER = @ReturnedContainer";
+
+                await using var returnCmd = new SqlCommand(returnSql, connection);
+                returnCmd.Parameters.AddWithValue("@DriverFullName", payload.DriverFullName);
+                returnCmd.Parameters.AddWithValue("@Date", payload.Date);
+                returnCmd.Parameters.AddWithValue("@Time", payload.Time);
+                returnCmd.Parameters.AddWithValue("@Chassis", payload.Chassis);
+                returnCmd.Parameters.AddWithValue("@ReturnedContainer", payload.ReturnedContainer);
+
+                returnRows = await returnCmd.ExecuteNonQueryAsync();
+                _logger.LogInformation("Return update: {Rows} row(s) for container {Container}.", returnRows, payload.ReturnedContainer);
             }
 
-            _logger.LogInformation("AMS record {Id} updated successfully.", payload.Id);
-            return new OkObjectResult(new { message = "AMS record updated successfully.", id = payload.Id, status = payload.Status });
+            return new OkObjectResult(new
+            {
+                message = "AMS record(s) updated successfully.",
+                dispatchedContainer = payload.DispatchedContainer,
+                deliveryRowsAffected = deliveryRows,
+                returnedContainer = payload.ReturnedContainer,
+                returnRowsAffected = returnRows
+            });
         }
         catch (SqlException ex)
         {
-            _logger.LogError(ex, "Database error while updating AMS record {Id}.", payload.Id);
+            _logger.LogError(ex, "Database error while updating AMS records.");
             return new StatusCodeResult(StatusCodes.Status500InternalServerError);
         }
-        */
     }
 }
 
-public record AmsUpdatePayload(int Id, string Status);
+public record AmsUpdatePayload(
+    string DispatchedContainer,
+    string DriverFullName,
+    string Date,
+    string Time,
+    string Chassis,
+    string? ReturnedContainer
+);
