@@ -21,7 +21,7 @@ public class UpdateAmsStatus
 
     [Function("UpdateAmsStatus")]
     public async Task<IActionResult> Run(
-        [HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
+        [HttpTrigger(AuthorizationLevel.Function, "post", "delete")] HttpRequest req)
     {
         _logger.LogInformation("UpdateAmsStatus function triggered.");
 
@@ -35,6 +35,40 @@ public class UpdateAmsStatus
         catch (JsonException)
         {
             return new BadRequestObjectResult("Invalid JSON payload.");
+        }
+
+        if (req.Method.Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+        {
+            if (payload?.ID is null)
+                return new BadRequestObjectResult("Payload must include: ID.");
+
+            try
+            {
+                await using var connection = new SqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                const string selectSql = "SELECT ID FROM tblAMS WHERE ID = @ID";
+                await using var selectCmd = new SqlCommand(selectSql, connection);
+                selectCmd.Parameters.AddWithValue("@ID", payload.ID);
+                var existing = await selectCmd.ExecuteScalarAsync();
+
+                if (existing is null)
+                    return new NotFoundObjectResult($"No AMS record found with ID {payload.ID}. Nothing was deleted.");
+
+                const string deleteSql = "DELETE FROM tblAMS WHERE ID = @ID";
+                await using var deleteCmd = new SqlCommand(deleteSql, connection);
+                deleteCmd.Parameters.AddWithValue("@ID", payload.ID);
+
+                int rows = await deleteCmd.ExecuteNonQueryAsync();
+                _logger.LogInformation("Delete: {Rows} row(s) for ID {ID}.", rows, payload.ID);
+
+                return new OkObjectResult(new { message = "AMS record deleted successfully.", id = payload.ID, rowsAffected = rows });
+            }
+            catch (SqlException ex)
+            {
+                _logger.LogError(ex, "Database error while deleting AMS record.");
+                return new StatusCodeResult(StatusCodes.Status500InternalServerError);
+            }
         }
 
         if (payload is null
@@ -53,6 +87,14 @@ public class UpdateAmsStatus
         {
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
+
+            const string selectDispatchSql = "SELECT ID FROM tblAMS WHERE CONTAINER = @DispatchedContainer";
+            await using var selectDispatchCmd = new SqlCommand(selectDispatchSql, connection);
+            selectDispatchCmd.Parameters.AddWithValue("@DispatchedContainer", payload.DispatchedContainer);
+            var existingDispatch = await selectDispatchCmd.ExecuteScalarAsync();
+
+            if (existingDispatch is null)
+                return new NotFoundObjectResult($"No AMS record found for container '{payload.DispatchedContainer}'. Nothing was updated.");
 
             // Required: update delivery info for dispatched container
             const string deliverySql = @"
@@ -114,10 +156,11 @@ public class UpdateAmsStatus
 }
 
 public record AmsUpdatePayload(
-    string DispatchedContainer,
-    string DriverFullName,
-    string Date,
-    string Time,
-    string Chassis,
+    int? ID,
+    string? DispatchedContainer,
+    string? DriverFullName,
+    string? Date,
+    string? Time,
+    string? Chassis,
     string? ReturnedContainer
 );
